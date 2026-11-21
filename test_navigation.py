@@ -35,6 +35,7 @@ def walk(controller):
     # A flat toy arena with one solid rectangle and no opponents or physics.
     goal = (87.5, 52.5)
     obs = observation((12.5, 52.5), goal)
+    obs["zone"]["next_radius"] = 0
     for tick in range(240):
         obs.update(t=tick / 10, tick=tick * 2)
         action = controller.act(obs)

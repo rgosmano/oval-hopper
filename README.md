@@ -1,6 +1,6 @@
 # Oval Hopper
 
-A Python entry for Builders Mech Royale (`mechfight/1`). The mech follows reachable waypoints toward the next game circle, stops inside eligible supply rings, and uses the game's jump and jet controls when movement stalls. It reads the arena from the organizer's read-only mount during initialization. It uses only the Python standard library.
+A Python entry for Builders Mech Royale (`mechfight/1`). Oval Hopper collects cubes, opens visible game crates and chooses health or mobility upgrades. It explores reachable tiles within a wide circle, steers away from groups of game avatars and prioritizes the zone as it closes. It stops for supply captures and keeps energy in reserve between sprints. The bot reads the organizer's map at startup and uses only the Python standard library.
 
 ## Reproduce the checks
 
@@ -16,7 +16,7 @@ python3 ../mechfight-kit/check/check.py --map-dir /arena -- \
   -v "$(cd ../mechfight-kit/arena && pwd):/arena:ro" oval-hopper
 ```
 
-The tests exercise a blocked corridor, bridge clearance, a disconnected courtyard, supply capture and recovery after a stall. The official checker measures protocol and timing on a recorded stream. Placement is measured in the organizer's interactive practice matches.
+The tests exercise a blocked corridor, bridge clearance, a disconnected courtyard, supply capture, recovery after a stall, collecting cubes, upgrades and the healing timer. To compare movement with the 1.79 submission, run `python3 -B test_policy.py` from a clone containing commit `d8e123a`. It uses 12 fixed seeds for each of two 40-second flat-arena scenarios and reports cube collection and time near a moving tagger. Only official practice matches measure placement. The organizer's replay checks protocol and timing.
 
 ## Submission
 

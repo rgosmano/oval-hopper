@@ -127,6 +127,22 @@ class GroundGrid:
         row = min(self.rows - 1, max(0, round((point[1] - self.y0) / self.step)))
         return col + row * self.width
 
+    def local_distances(self, pos, steps):
+        """Walk distances in a small neighborhood, respecting walls and bridges."""
+        start = self.snap[self.cell(pos)]
+        hops = {start: 0}
+        queue = deque([start])
+        while queue:
+            cell = queue.popleft()
+            depth = hops[cell]
+            if depth >= steps:
+                continue
+            for neighbor in self.links[cell]:
+                if neighbor not in hops:
+                    hops[neighbor] = depth + 1
+                    queue.append(neighbor)
+        return hops
+
     def waypoint(self, pos, goal):
         raw = self.cell(pos)
         start = self.snap[raw]
