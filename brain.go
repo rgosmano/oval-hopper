@@ -176,7 +176,7 @@ func DefaultParams() Params {
 }
 
 func NewBrain(h *Hello, w *World) *Brain {
-	seed := int64(h.Seed)
+	seed := int64(h.Seed)*7919 + 4
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
@@ -1451,16 +1451,10 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 	bd := hyp(bx, by) + 1e-9
 	ux, uy := bx/bd, by/bd
 	if b.now >= b.strafeUntil {
-		if b.pracOn {
-			// practice: steady strafe, reversing every 3-5 s (a public practice log found this +0.35 over fast jukes)
+		if b.rng.Float64() < 0.6 {
 			b.strafe = -b.strafe
-			b.strafeUntil = b.now + 3 + b.rng.Float64()*2
-		} else {
-			if b.rng.Float64() < 0.6 {
-				b.strafe = -b.strafe
-			}
-			b.strafeUntil = b.now + 0.3 + b.rng.Float64()*0.7
 		}
+		b.strafeUntil = b.now + 0.3 + b.rng.Float64()*0.7
 	}
 	sx, sy := -uy*b.strafe, ux*b.strafe
 	tc := b.center(tg)
