@@ -26,12 +26,12 @@ class Bot(StarterBot):
         self.drop_wait = {}
         self.drop_retry = {}
 
-    def remembered(self, obs, items, cache, ttl=16):
+    def remembered(self, obs, items, cache):
         now = obs["t"]
         pos = obs["self"]["pos"]
         visible = {item["id"]: item for item in items}
         for key, (item, last_seen) in list(cache.items()):
-            if now - last_seen > ttl or (key not in visible and
+            if now - last_seen > 16 or (key not in visible and
                                          math.dist(pos[:2], item["pos"][:2]) <= 9):
                 del cache[key]
         cache.update((key, (item, now)) for key, item in visible.items())
@@ -54,6 +54,26 @@ class Bot(StarterBot):
             action["take"] = min(eligible)[2]
             if held is not None:
                 action["drop"] = 1
+
+    def press(self, obs, move):
+        """Close in on the nearest visible mech (to ~70 m, ~35 m with lightning)
+        while healthy: every move-away variant scored worse for real."""
+        me = obs["self"]
+        if self.mode == "circle" or not me["in_zone"] or me["hp"] < 0.5 * me.get("max_hp", 1400):
+            return move
+        x, y = me["pos"][:2]
+        foes = [m for m in obs["mechs"] if m["kind"] == "mech" and math.dist(m["pos"][:2], (x, y)) < 200]
+        if not foes:
+            return move
+        o = min(foes, key=lambda m: math.dist(m["pos"][:2], (x, y)))
+        bonus = me["weapons"][1]
+        want = 35 if bonus and bonus["kind"] == "lightning" else 70
+        if math.dist(o["pos"][:2], (x, y)) <= want:
+            return move
+        wp = self.grid.waypoint((x, y), o["pos"][:2])
+        dx, dy = wp[0] - x, wp[1] - y
+        n = math.hypot(dx, dy)
+        return [dx / n, dy / n] if n > 0.5 else move
 
     def combat(self, obs, action):
         """Aim at the best visible mech, leading the shot; lob the mortar on an arc."""
@@ -119,14 +139,7 @@ class Bot(StarterBot):
         action["aim"] = aim
         # Only shoot once the torso is roughly on target, so ammo is not wasted.
         off = abs(math.remainder(aim[0] - yaw_now, math.tau))
-        # Fire only when the torso is within the target's angular width (plus a
-        # little slack), so turning does not burn the magazine into empty air.
-        pitch_off = abs(aim[1] - me.get("aim", [0, 0])[1])
-        width = math.atan2(2.5, max(1.0, flat)) + 0.015
-        on_target = off < width and pitch_off < width + 0.03
-        self.laser_on_target = on_target
-        action["fire"] = [fire_gun and on_target,
-                          fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
+        action["fire"] = [fire_gun and off < 0.25, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
         if gun and gun.get("ammo", 1) == 0 and gun.get("reload", 0) == 0:
             action["reload"] = True
 
@@ -214,8 +227,7 @@ class Bot(StarterBot):
 
         cubes = self.remembered(obs, obs.get("cubes", []), self.seen_cubes)
         held_rank = self.bonus_rank.get((me["weapons"][1] or {}).get("kind"), 0)
-        # Weapons on the ground never despawn: remember them for two minutes.
-        seen = self.remembered(obs, obs["pickups"], self.seen_bonuses, ttl=120)
+        seen = self.remembered(obs, obs["pickups"], self.seen_bonuses)
         bonuses = [p for p in seen if self.bonus_rank.get(p["kind"], 0) > max(1, held_rank)]
         if cubes or bonuses or nearest > 50:
             options = []
@@ -231,9 +243,6 @@ class Bot(StarterBot):
                     limit = 165 if nearest > 50 else 40
                     if held_rank:
                         limit = min(75, limit)
-                    if item["kind"] == "laser":
-                        # The laser wins far more fights than anything else: go get it.
-                        limit = 220 if nearest > 50 else 90
                 cell = self.grid.cell(point)
                 height_reference = me["pos"][2] if distance < 10 else self.grid.ground_heights[cell]
                 if abs(item["pos"][2] - height_reference) > 4 or distance > limit:
@@ -243,7 +252,7 @@ class Bot(StarterBot):
                     continue
                 value = {"cube": 0, "pickup": 5, "crate": 16}[kind] + distance
                 if kind == "pickup":
-                    value -= 150 if item["kind"] == "laser" else 35
+                    value -= 50 if item["kind"] == "laser" else 35
                 options.append((value, item["id"], kind, point, item))
             if options:
                 for _, _, kind, point, item in sorted(options):
@@ -313,6 +322,7 @@ class Bot(StarterBot):
         else:
             self.anchor = None
             self.recover_until = 0
+        move = self.press(obs, move)
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
@@ -337,11 +347,6 @@ class Bot(StarterBot):
             self.combat(obs, action)
         elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
-        if self.mode != "crate" and not any(a["kind"] == "mech" for a in obs["mechs"]):
-            gun = me["weapons"][0]
-            # Top up a partial magazine between fights.
-            if gun and gun.get("reload", 0) == 0 and gun.get("ammo", 12) < gun.get("stats", {}).get("mag", 12):
-                action["reload"] = True
         if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
@@ -350,20 +355,9 @@ class Bot(StarterBot):
         bonus = me["weapons"][1]
         if bonus and action.get("fire", [False, False])[1]:
             if bonus["kind"] == "laser":
-                full = bonus.get("charge", 0) >= bonus["stats"]["charge"] - 1e-6
-                if not full:
-                    self.full_since = None
-                    action["fire"][1] = me["in_zone"]
-                else:
-                    # Hold a full charge (the game allows hold_s, 2 s) until the
-                    # torso is on target, then release; never waste the 315-damage shot.
-                    if getattr(self, "full_since", None) is None:
-                        self.full_since = obs["t"]
-                    held = obs["t"] - self.full_since
-                    on = getattr(self, "laser_on_target", True)
-                    action["fire"][1] = me["in_zone"] and not on and held < 1.6
-                    if not action["fire"][1]:
-                        self.full_since = None
+                # Holding a full charge keeps the avatar at half walking speed.
+                action["fire"][1] = (me["in_zone"] and
+                                     bonus.get("charge", 0) < bonus["stats"]["charge"] - 1e-6)
             elif bonus["kind"] == "lightning":
                 action["fire"][1] = me["energy"] > 0.30 * me.get("max_energy", 100)
         mf.draw.clear()
