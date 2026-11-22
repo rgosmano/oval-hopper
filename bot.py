@@ -77,7 +77,7 @@ class Bot(StarterBot):
         def lead(speed):
             px, py, pz = tx, ty, tz + 4.5
             for _ in range(3):
-                t = math.dist((px, py, pz), (x, y, muzzle)) / speed
+                t = math.dist((px, py, pz), (x, y, muzzle)) / speed + 0.05
                 px, py, pz = tx + vx * t, ty + vy * t, tz + 4.5 + (vz * t if vz > 0 else 0)
             return px, py, pz
 
@@ -112,8 +112,12 @@ class Bot(StarterBot):
         elif bonus and bonus["kind"] == "laser":
             # Hitscan: aim at the current centre of mass.
             fire_bonus = flat <= bonus.get("stats", {}).get("range", 280)
-            if fire_bonus and bonus.get("charge", 0) > 0:
+            # Aim the hitscan beam at the centre of mass only just before release;
+            # otherwise keep the gun lead so bullets fired while charging still hit.
+            full = bonus.get("stats", {}).get("charge", 0.75)
+            if fire_bonus and bonus.get("charge", 0) >= full - 0.12:
                 aim = [math.atan2(ty - y, tx - x), math.atan2(tz + 4.5 - muzzle, max(0.1, flat))]
+                fire_gun = False
         elif bonus and bonus["kind"] == "lightning":
             fire_bonus = flat <= bonus.get("stats", {}).get("range", 45)
         action["aim"] = aim
@@ -166,7 +170,7 @@ class Bot(StarterBot):
             angle = me["id"] * math.tau / 16
         direction = 1 if me["id"] % 2 else -1
         tangent = (-math.sin(angle) * direction, math.cos(angle) * direction)
-        preferred_radius = radius * 0.35
+        preferred_radius = radius * 0.67
         best_value = -math.inf
         best = None
         for cell, depth in hops.items():
