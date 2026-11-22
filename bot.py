@@ -66,7 +66,7 @@ class Bot(StarterBot):
             d = math.dist(m["pos"][:2], (x, y))
             turn = abs(math.remainder(math.atan2(m["pos"][1] - y, m["pos"][0] - x) - yaw_now, math.tau))
             hp = m.get("hp", 700) / max(1, m.get("max_hp", 1400))
-            return d + 40 * turn + 150 * hp
+            return d + 40 * turn + 60 * hp
 
         enemies = [m for m in obs["mechs"] if m["kind"] == "mech"]
         target = min(enemies, key=score)
@@ -86,7 +86,7 @@ class Bot(StarterBot):
         flat = math.hypot(px - x, py - y)
         aim = [math.atan2(py - y, px - x), math.atan2(pz - muzzle, max(0.1, flat))]
         # Replays: shots beyond ~130 m hit only 8-20%; save the magazine for closer targets.
-        in_gun_range = flat <= min(130, (gun or {}).get("stats", {}).get("range", 230))
+        in_gun_range = flat <= min(110, (gun or {}).get("stats", {}).get("range", 230))
         fire_gun = bool(gun) and in_gun_range
         fire_bonus = False
         if bonus and bonus["kind"] == "mortar":
