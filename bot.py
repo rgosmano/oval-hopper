@@ -23,7 +23,6 @@ class Bot(StarterBot):
         self.sprinting = False
         self.seen_cubes = {}
         self.seen_bonuses = {}
-        self.seen_crates = {}
         self.drop_wait = {}
         self.drop_retry = {}
 
@@ -151,7 +150,7 @@ class Bot(StarterBot):
                 self.drop_wait.pop(drop_id, None)
             arrival = 1.25 * max(0, distance - drop["radius"]) / max(1, me["stats"]["walk_speed"])
             finish = max(arrival, drop["lands_in"]) + drop.get("capture_s", 4) - progress
-            if finish <= 50:
+            if finish <= 37:
                 options.append((finish, drop["id"], point, drop["radius"]))
         if options:
             _, _, point, capture_radius = min(options)
@@ -167,7 +166,7 @@ class Bot(StarterBot):
             angle = me["id"] * math.tau / 16
         direction = 1 if me["id"] % 2 else -1
         tangent = (-math.sin(angle) * direction, math.cos(angle) * direction)
-        preferred_radius = radius * 0.67
+        preferred_radius = radius * 0.9
         best_value = -math.inf
         best = None
         for cell, depth in hops.items():
@@ -214,13 +213,12 @@ class Bot(StarterBot):
             options = []
             candidates = [(item, "cube") for item in cubes]
             candidates.extend((item, "pickup") for item in bonuses)
-            crates = self.remembered(obs, obs.get("crates", []), self.seen_crates)
-            if nearest > 60 and me["hp"] >= 0.5 * me.get("max_hp", me["hp"]):
-                candidates += [(item, "crate") for item in crates]
+            if nearest > 100 and me["hp"] >= 0.8 * me.get("max_hp", me["hp"]):
+                candidates += [(item, "crate") for item in obs.get("crates", [])]
             for item, kind in candidates:
                 point = item["pos"][:2]
                 distance = math.dist(pos, point)
-                limit = (140 if nearest > 50 else 12) if kind == "cube" else 110
+                limit = (100 if nearest > 50 else 12) if kind == "cube" else 60
                 if kind == "pickup":
                     limit = 165 if nearest > 50 else 40
                     if held_rank:
@@ -232,7 +230,7 @@ class Bot(StarterBot):
                 if math.dist(point, center) > radius and (slack < 16 or
                         math.dist(point, zone.get("center", center)) + 8 > zone.get("radius", radius)):
                     continue
-                value = {"cube": 0, "pickup": 5, "crate": 0}[kind] + distance
+                value = {"cube": 0, "pickup": 5, "crate": 16}[kind] + distance
                 if kind == "pickup":
                     value -= 50 if item["kind"] == "laser" else 35
                 options.append((value, item["id"], kind, point, item))
