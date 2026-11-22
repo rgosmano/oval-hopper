@@ -23,14 +23,9 @@ class Bot(StarterBot):
         self.sprinting = False
         self.seen_cubes = {}
         self.seen_bonuses = {}
+        self.seen_crates = {}
         self.drop_wait = {}
         self.drop_retry = {}
-        self.camp_spot = None
-
-    def camping(self, obs):
-        # Top bots grab a laser, then hold a spot and let enemies come (and regenerate).
-        held = (obs["self"]["weapons"][1] or {}).get("kind")
-        return held == "laser" or obs["t"] >= 75
 
     def remembered(self, obs, items, cache):
         now = obs["t"]
@@ -156,7 +151,7 @@ class Bot(StarterBot):
                 self.drop_wait.pop(drop_id, None)
             arrival = 1.25 * max(0, distance - drop["radius"]) / max(1, me["stats"]["walk_speed"])
             finish = max(arrival, drop["lands_in"]) + drop.get("capture_s", 4) - progress
-            if finish <= 37:
+            if finish <= 50:
                 options.append((finish, drop["id"], point, drop["radius"]))
         if options:
             _, _, point, capture_radius = min(options)
@@ -206,10 +201,7 @@ class Bot(StarterBot):
             return center, min(2.0, radius * 0.1)
 
         # Respect actual capture progress and the uninterrupted timer.
-        camp = self.camping(obs)
         supply = self.supply_goal(obs)
-        if supply is not None and camp and math.dist(pos, supply[0]) > 70:
-            supply = None
         if supply is not None:
             self.mode = "drop"
             return supply
@@ -222,18 +214,17 @@ class Bot(StarterBot):
             options = []
             candidates = [(item, "cube") for item in cubes]
             candidates.extend((item, "pickup") for item in bonuses)
-            if not camp and nearest > 100 and me["hp"] >= 0.8 * me.get("max_hp", me["hp"]):
-                candidates += [(item, "crate") for item in obs.get("crates", [])]
+            crates = self.remembered(obs, obs.get("crates", []), self.seen_crates)
+            if nearest > 60 and me["hp"] >= 0.5 * me.get("max_hp", me["hp"]):
+                candidates += [(item, "crate") for item in crates]
             for item, kind in candidates:
                 point = item["pos"][:2]
                 distance = math.dist(pos, point)
-                limit = (100 if nearest > 50 else 12) if kind == "cube" else 60
+                limit = (140 if nearest > 50 else 12) if kind == "cube" else 110
                 if kind == "pickup":
                     limit = 165 if nearest > 50 else 40
                     if held_rank:
                         limit = min(75, limit)
-                if camp:
-                    limit = min(limit, 30 if kind == "cube" else 45)
                 cell = self.grid.cell(point)
                 height_reference = me["pos"][2] if distance < 10 else self.grid.ground_heights[cell]
                 if abs(item["pos"][2] - height_reference) > 4 or distance > limit:
@@ -241,7 +232,7 @@ class Bot(StarterBot):
                 if math.dist(point, center) > radius and (slack < 16 or
                         math.dist(point, zone.get("center", center)) + 8 > zone.get("radius", radius)):
                     continue
-                value = {"cube": 0, "pickup": 5, "crate": 16}[kind] + distance
+                value = {"cube": 0, "pickup": 5, "crate": 0}[kind] + distance
                 if kind == "pickup":
                     value -= 50 if item["kind"] == "laser" else 35
                 options.append((value, item["id"], kind, point, item))
@@ -261,18 +252,6 @@ class Bot(StarterBot):
         if excess > 0:
             self.mode = "circle"
             return center, 2
-        if camp:
-            spot = self.camp_spot
-            if spot is None or math.dist(spot, center) > radius - 10:
-                d = math.dist(pos, center)
-                if d <= radius - 10:
-                    spot = tuple(pos)
-                else:
-                    k = radius * 0.5 / max(1e-6, d)
-                    spot = (center[0] + (pos[0] - center[0]) * k, center[1] + (pos[1] - center[1]) * k)
-                self.camp_spot = spot
-            self.mode = "camp"
-            return list(spot), 3.0
         crowd = nearest < 65
         key = (tuple(center), radius, crowd)
         if (self.mode != "roam" or self.goal is None or key != self.roam_key
@@ -349,7 +328,7 @@ class Bot(StarterBot):
             self.combat(obs, action)
         elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
-        if (self.mode in ("roam", "camp") and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
+        if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
             action["fire"] = [False, False]
