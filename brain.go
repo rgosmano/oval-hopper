@@ -905,8 +905,7 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				mode = "home"
 			}
-		} else if (b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger) ||
-			(b.pracOn && laser == nil && !late && hpFrac > 0.6 && !danger) { // practice: scout for a laser instead of idling
+		} else if b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger {
 			mx, my = b.exploreMove(o)
 			mode = "explore"
 		}
@@ -1452,10 +1451,16 @@ func (b *Brain) fightMove(o *Obs, tg *Track, seen []*Track, wantLos float64) (fl
 	bd := hyp(bx, by) + 1e-9
 	ux, uy := bx/bd, by/bd
 	if b.now >= b.strafeUntil {
-		if b.rng.Float64() < 0.6 {
+		if b.pracOn {
+			// practice: steady strafe, reversing every 3-5 s (a public practice log found this +0.35 over fast jukes)
 			b.strafe = -b.strafe
+			b.strafeUntil = b.now + 3 + b.rng.Float64()*2
+		} else {
+			if b.rng.Float64() < 0.6 {
+				b.strafe = -b.strafe
+			}
+			b.strafeUntil = b.now + 0.3 + b.rng.Float64()*0.7
 		}
-		b.strafeUntil = b.now + 0.3 + b.rng.Float64()*0.7
 	}
 	sx, sy := -uy*b.strafe, ux*b.strafe
 	tc := b.center(tg)
