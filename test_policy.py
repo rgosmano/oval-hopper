@@ -61,6 +61,33 @@ def test_grid():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_bonus_reachable_across_inclined_game_floor(self):
+        grid = GroundGrid(dict(minX=-160, minY=-100, maxX=160, maxY=100),
+                          [], lambda x, y: 0.08*x, STATS)
+        with patch.object(GroundGrid, "load", return_value=grid):
+            bot = Bot(HELLO)
+        obs = observation([0, 0], [0, 0])
+        obs["zone"]["next_radius"] = 150
+        obs["pickups"] = [dict(id=8020, pos=[100, 0, 8], kind="laser")]
+        self.assertEqual(bot.destination(obs)[0], [100, 0])
+        obs.update(t=1, pickups=[])
+        self.assertEqual(bot.destination(obs)[0], [100, 0])
+        obs["t"] = 20
+        bot.destination(obs)
+        self.assertNotEqual(bot.mode, "pickup")
+
+    def test_full_charge_releases_slow_status_and_low_energy_is_reserved(self):
+        with patch.object(GroundGrid, "load", return_value=test_grid()):
+            bot = Bot(HELLO)
+        obs = observation([0, 0], [0, 0])
+        obs["mechs"] = [dict(kind="mech", pos=[20, 0, 0])]
+        bonus = dict(kind="laser", stats=dict(charge=0.75), charge=0.75)
+        obs["self"]["weapons"][1] = bonus
+        self.assertFalse(bot.act(obs)["fire"][1])
+        obs["self"]["weapons"][1] = dict(kind="lightning")
+        obs["self"]["energy"] = 20
+        self.assertFalse(bot.act(obs)["fire"][1])
+
     def test_cube_survives_one_missed_observation(self):
         with patch.object(GroundGrid, "load", return_value=test_grid()):
             bot = Bot(HELLO)

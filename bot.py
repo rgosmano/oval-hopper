@@ -21,19 +21,20 @@ class Bot(StarterBot):
         self.mode = "circle"
         self.sprinting = False
         self.seen_cubes = {}
+        self.seen_bonuses = {}
         self.drop_wait = {}
         self.drop_retry = {}
 
-    def available_cubes(self, obs):
+    def remembered(self, obs, items, cache):
         now = obs["t"]
         pos = obs["self"]["pos"]
-        visible = {cube["id"]: cube for cube in obs.get("cubes", [])}
-        for cube_id, (cube, last_seen) in list(self.seen_cubes.items()):
-            if now - last_seen > 16 or (cube_id not in visible and
-                                         math.dist(pos[:2], cube["pos"][:2]) <= 9):
-                del self.seen_cubes[cube_id]
-        self.seen_cubes.update((key, (item, now)) for key, item in visible.items())
-        return [cube for cube, _ in self.seen_cubes.values()]
+        visible = {item["id"]: item for item in items}
+        for key, (item, last_seen) in list(cache.items()):
+            if now - last_seen > 16 or (key not in visible and
+                                         math.dist(pos[:2], item["pos"][:2]) <= 9):
+                del cache[key]
+        cache.update((key, (item, now)) for key, item in visible.items())
+        return [item for item, _ in cache.values()]
 
     def supply_goal(self, obs):
         me, zone = obs["self"], obs["zone"]
@@ -117,26 +118,31 @@ class Bot(StarterBot):
             self.mode = "drop"
             return supply
 
-        cubes = self.available_cubes(obs)
-        if cubes or nearest > 50:
+        cubes = self.remembered(obs, obs.get("cubes", []), self.seen_cubes)
+        bonuses = self.remembered(obs, [p for p in obs["pickups"] if p["kind"] in ("laser", "lightning")],
+                                  self.seen_bonuses) if me["weapons"][1] is None else []
+        if cubes or bonuses or nearest > 50:
             options = []
             candidates = [(item, "cube") for item in cubes]
-            if nearest > 50 and me["weapons"][1] is None:
-                candidates += [(item, "pickup") for item in obs["pickups"] if item["kind"] != "gun"]
+            candidates.extend((item, "pickup") for item in bonuses)
             if nearest > 100 and me["hp"] >= 0.8 * me.get("max_hp", me["hp"]):
                 candidates += [(item, "crate") for item in obs.get("crates", [])]
             for item, kind in candidates:
                 point = item["pos"][:2]
                 distance = math.dist(pos, point)
                 limit = (100 if nearest > 50 else 12) if kind == "cube" else 60
-                if abs(item["pos"][2] - me["pos"][2]) > 4 or distance > limit:
+                if kind == "pickup":
+                    limit = 165 if nearest > 50 else 40
+                cell = self.grid.cell(point)
+                height_reference = me["pos"][2] if distance < 10 else self.grid.ground_heights[cell]
+                if abs(item["pos"][2] - height_reference) > 4 or distance > limit:
                     continue
                 if math.dist(point, center) > radius and (slack < 16 or
                         math.dist(point, zone.get("center", center)) + 8 > zone.get("radius", radius)):
                     continue
                 value = {"cube": 0, "pickup": 5, "crate": 16}[kind] + distance
-                if kind == "pickup" and item["kind"] == "lightning":
-                    value -= 4
+                if kind == "pickup":
+                    value -= 50 if item["kind"] == "laser" else 35
                 options.append((value, item["id"], kind, point, item))
             if options:
                 for _, _, kind, point, item in sorted(options):
@@ -241,6 +247,14 @@ class Bot(StarterBot):
                         abs(p["pos"][2] - me["pos"][2]) <= 4 and p["kind"] != "gun"]
             if eligible:
                 action["take"] = eligible[0]["id"]
+        bonus = me["weapons"][1]
+        if bonus and action.get("fire", [False, False])[1]:
+            if bonus["kind"] == "laser":
+                # Holding a full charge keeps the avatar at half walking speed.
+                action["fire"][1] = (me["in_zone"] and
+                                     bonus.get("charge", 0) < bonus["stats"]["charge"] - 1e-6)
+            elif bonus["kind"] == "lightning":
+                action["fire"][1] = me["energy"] > 0.30 * me.get("max_energy", 100)
         mf.draw.clear()
         mf.draw.point([*goal, me["pos"][2]], "#40c0ff", 5)
         mf.draw.point([*waypoint, me["pos"][2]], "#f0b840", 3)

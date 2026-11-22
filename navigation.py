@@ -46,6 +46,7 @@ class GroundGrid:
         self.positions = [(self.x0 + (i % self.width) * self.step,
                            self.y0 + (i // self.width) * self.step) for i in range(count)]
         levels = [height(x, y) for x, y in self.positions]
+        self.ground_heights = levels
         blocked = bytearray(count)
         # The extra half cell keeps a grid edge from stepping across a thin wall.
         margin = radius + self.step / 2
