@@ -174,7 +174,7 @@ class Bot(StarterBot):
             angle = me["id"] * math.tau / 16
         direction = 1 if me["id"] % 2 else -1
         tangent = (-math.sin(angle) * direction, math.cos(angle) * direction)
-        preferred_radius = radius * 0.60
+        preferred_radius = radius * 0.67
         best_value = -math.inf
         best = None
         for cell, depth in hops.items():
@@ -334,7 +334,7 @@ class Bot(StarterBot):
             self.combat(obs, action)
         elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
-        if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
+        if (self.mode == "roam" and me["hp"] < 0.80 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
             action["fire"] = [False, False]
