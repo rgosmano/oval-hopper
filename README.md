@@ -4,6 +4,8 @@ Entry for Builders Mech Royale (`mechfight/1`).
 
 ## Credit: code we brought
 
+**Current runtime (from commit 'waiprotein fork'):** waiprotein's public MIT fork of giddygiddyboy's bot, https://github.com/waiprotein/mech-royale-bot at commit `fea5742c`, copyright (c) 2026 giddygiddyboy and (c) 2026 waihu (modifications); license in `LICENSE-waiprotein`. Our changes: ready name, flat layout, `Salt` value. Earlier commits used the giddy copy described below.
+
 The current runtime (`main.go`, `brain.go`, `types.go`, `world.go`, `export.go`, `go.mod`) is **giddygiddyboy's public Mech Royale bot**. We use it under its MIT license, and the full license text is kept in [`LICENSE-giddygiddyboy`](LICENSE-giddygiddyboy).
 
 - Upstream: https://github.com/justnau/giddygiddyboy-mech-royale (no longer public). We took the copy vendored under `drivers/giddy/` in https://github.com/charliescull/mech-royale-bot (MIT, copyright (c) 2026 giddygiddyboy).
