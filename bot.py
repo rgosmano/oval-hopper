@@ -55,25 +55,78 @@ class Bot(StarterBot):
             if held is not None:
                 action["drop"] = 1
 
-    def press(self, obs, move):
-        """Close in on the nearest visible mech (to ~70 m, ~35 m with lightning)
-        while healthy: every move-away variant scored worse for real."""
+    def platform_move(self, obs, zone):
+        me, now = obs["self"], obs["t"]
+        pos = me["pos"][:2]
+        center, radius = zone["next_center"], zone["next_radius"]
+        if radius < 12 or not me["in_zone"] or not self.grid.platforms:
+            self.platform = None
+            return None
+        if self.platform is not None:
+            cell, _, top, _ = self.platform
+            if math.dist(self.grid.positions[cell], center) > radius - 6:
+                self.platform = None
+                self.platform_check = 0
+            elif me["grounded"] and abs(me["pos"][2] - top) < 2 and math.dist(pos, self.grid.positions[cell]) < 9:
+                self.platform_expires = now + 10
+                return [0, 0], False, False, "rest"
+            elif now > self.platform_expires:
+                self.failed_platforms[cell] = now + 45
+                self.platform = None
+        if self.platform is None:
+            if now < self.platform_check:
+                return None
+            self.platform_check = now + 2
+            group = self.grid.component[self.grid.snap[self.grid.cell(pos)]]
+            best_cost = math.inf
+            for entry in self.grid.platforms:
+                cell, launch, top, gain = entry
+                point, pad = self.grid.positions[cell], self.grid.positions[launch]
+                if self.failed_platforms.get(cell, 0) > now or self.grid.component[launch] != group:
+                    continue
+                if math.dist(point, center) > radius - 6:
+                    continue
+                distance = math.dist(pos, pad)
+                if distance > 145:
+                    continue
+                cost = distance + 0.5 * math.dist(point, pad) - 1.8 * min(39, gain)
+                if math.dist(pos, point) < 15 and abs(me["pos"][2] - top) < 2:
+                    cost -= 140
+                if cost < best_cost:
+                    best_cost, self.platform = cost, entry
+            if self.platform is None:
+                return None
+            pad = self.grid.positions[self.platform[1]]
+            self.platform_expires = now + 12 + 1.8 * math.dist(pos, pad) / max(1, me["stats"]["walk_speed"])
+        cell, launch, top, _ = self.platform
+        point, pad = self.grid.positions[cell], self.grid.positions[launch]
+        at_edge = math.dist(pos, pad) < 9 or self.grid.snap[self.grid.cell(pos)] != self.grid.cell(pos)
+        above = me["pos"][2] >= top - 0.6
+        # A roof spawn can walk directly onto its landing cell. On the ground,
+        # charge enough energy to finish the climb before jumping.
+        if above and math.dist(pos, point) < 30:
+            goal, boost, jump, label = point, False, False, "land"
+        elif at_edge:
+            energy_need = min(me.get("max_energy", 100) - 1, 10 + 1.8 * max(0, top - me["pos"][2]))
+            if me["grounded"] and me["energy"] < energy_need:
+                return [0, 0], False, False, "charge"
+            goal, boost, jump, label = point, not above, me["grounded"], "climb"
+        else:
+            goal, boost, jump, label = self.grid.waypoint(pos, pad), False, False, "approach"
+        dx, dy = goal[0] - pos[0], goal[1] - pos[1]
+        length = max(1, math.hypot(dx, dy))
+        return [dx / length, dy / length], boost, jump, label
+
+    def roof_plan(self, obs):
+        """With a laser and decent health, take a nearby roof inside the circle."""
         me = obs["self"]
-        if self.mode == "circle" or not me["in_zone"] or me["hp"] < 0.5 * me.get("max_hp", 1400):
-            return move
-        x, y = me["pos"][:2]
-        foes = [m for m in obs["mechs"] if m["kind"] == "mech" and math.dist(m["pos"][:2], (x, y)) < 200]
-        if not foes:
-            return move
-        o = min(foes, key=lambda m: math.dist(m["pos"][:2], (x, y)))
         bonus = me["weapons"][1]
-        want = 35 if bonus and bonus["kind"] == "lightning" else 70
-        if math.dist(o["pos"][:2], (x, y)) <= want:
-            return move
-        wp = self.grid.waypoint((x, y), o["pos"][:2])
-        dx, dy = wp[0] - x, wp[1] - y
-        n = math.hypot(dx, dy)
-        return [dx / n, dy / n] if n > 0.5 else move
+        if not bonus or bonus["kind"] != "laser" or me["hp"] < 0.5 * me.get("max_hp", 1400):
+            self.platform = None
+            return None
+        if not hasattr(self, "failed_platforms"):
+            self.platform, self.platform_check, self.platform_expires, self.failed_platforms = None, 0, 0, {}
+        return self.platform_move(obs, obs["zone"])
 
     def combat(self, obs, action):
         """Aim at the best visible mech, leading the shot; lob the mortar on an arc."""
@@ -322,12 +375,14 @@ class Bot(StarterBot):
         else:
             self.anchor = None
             self.recover_until = 0
-        move = self.press(obs, move)
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
             self.sprinting = energy > (0.36 if self.sprinting else 0.82)
             boost = boost or self.sprinting
+        plan = self.roof_plan(obs)
+        if plan is not None:
+            move, boost, jump = plan[0], plan[1], plan[2]
         action.update(move=move, boost=boost, jump=jump)
 
         if obs["offer"]:
