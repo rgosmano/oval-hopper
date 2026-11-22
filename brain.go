@@ -176,7 +176,7 @@ func DefaultParams() Params {
 }
 
 func NewBrain(h *Hello, w *World) *Brain {
-	seed := int64(h.Seed)
+	seed := int64(h.Seed)*7919 + 2
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
@@ -2020,7 +2020,7 @@ func squadParams(p Params) Params {
 	p.Ghost = false
 	p.Peek = false
 	p.LaserFirst = true
-	p.LaserRange = 175
+	p.LaserRange = 150
 	p.LootRadius = 150
 	p.CrateUntil = 1e9
 	p.Stick = 120
