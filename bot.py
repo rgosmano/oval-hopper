@@ -66,7 +66,7 @@ class Bot(StarterBot):
             d = math.dist(m["pos"][:2], (x, y))
             turn = abs(math.remainder(math.atan2(m["pos"][1] - y, m["pos"][0] - x) - yaw_now, math.tau))
             hp = m.get("hp", 700) / max(1, m.get("max_hp", 1400))
-            return d + 40 * turn + 60 * hp
+            return d + 40 * turn + 150 * hp
 
         enemies = [m for m in obs["mechs"] if m["kind"] == "mech"]
         target = min(enemies, key=score)
@@ -77,7 +77,7 @@ class Bot(StarterBot):
         def lead(speed):
             px, py, pz = tx, ty, tz + 4.5
             for _ in range(3):
-                t = math.dist((px, py, pz), (x, y, muzzle)) / speed + 0.18
+                t = math.dist((px, py, pz), (x, y, muzzle)) / speed + 0.05
                 px, py, pz = tx + vx * t, ty + vy * t, tz + 4.5 + (vz * t if vz > 0 else 0)
             return px, py, pz
 
@@ -85,7 +85,8 @@ class Bot(StarterBot):
         px, py, pz = lead(gun_speed)
         flat = math.hypot(px - x, py - y)
         aim = [math.atan2(py - y, px - x), math.atan2(pz - muzzle, max(0.1, flat))]
-        in_gun_range = flat <= min(140, (gun or {}).get("stats", {}).get("range", 230))
+        # Replays: shots beyond ~130 m hit only 8-20%; save the magazine for closer targets.
+        in_gun_range = flat <= min(130, (gun or {}).get("stats", {}).get("range", 230))
         fire_gun = bool(gun) and in_gun_range
         fire_bonus = False
         if bonus and bonus["kind"] == "mortar":
@@ -112,19 +113,21 @@ class Bot(StarterBot):
         elif bonus and bonus["kind"] == "laser":
             # Hitscan: aim at the current centre of mass.
             fire_bonus = flat <= bonus.get("stats", {}).get("range", 280)
-            # Aim the hitscan beam only just before release (with the decision delay);
+            # Aim the hitscan beam at the centre of mass only just before release;
             # otherwise keep the gun lead so bullets fired while charging still hit.
             full = bonus.get("stats", {}).get("charge", 0.75)
             if fire_bonus and bonus.get("charge", 0) >= full - 0.12:
-                bx, by = tx + vx * 0.15, ty + vy * 0.15
-                aim = [math.atan2(by - y, bx - x), math.atan2(tz + 4.5 - muzzle, max(0.1, math.hypot(bx - x, by - y)))]
+                aim = [math.atan2(ty - y, tx - x), math.atan2(tz + 4.5 - muzzle, max(0.1, flat))]
                 fire_gun = False
         elif bonus and bonus["kind"] == "lightning":
             fire_bonus = flat <= bonus.get("stats", {}).get("range", 45)
         action["aim"] = aim
         # Only shoot once the torso is roughly on target, so ammo is not wasted.
         off = abs(math.remainder(aim[0] - yaw_now, math.tau))
-        action["fire"] = [fire_gun and off < 0.25, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
+        pitch_off = abs(aim[1] - me.get("aim", [0, 0])[1])
+        width = math.atan2(2.5, max(1.0, flat)) + 0.015
+        on_target = off < width and pitch_off < width + 0.03
+        action["fire"] = [fire_gun and on_target, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
         if gun and gun.get("ammo", 1) == 0 and gun.get("reload", 0) == 0:
             action["reload"] = True
 
