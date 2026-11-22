@@ -199,17 +199,6 @@ class Bot(StarterBot):
             self.mode = "circle"
             return center, min(2.0, radius * 0.1)
 
-        # Badly damaged with a mech close by: back away inside the safe circle.
-        if me["hp"] < 0.4 * me.get("max_hp", 1400) and nearest < 70 and radius > 25:
-            ox, oy = min(actors, key=lambda p: math.dist(pos, p))
-            away = math.atan2(pos[1] - oy, pos[0] - ox)
-            for turn in (0, 0.6, -0.6, 1.2, -1.2):
-                gx = pos[0] + 35 * math.cos(away + turn)
-                gy = pos[1] + 35 * math.sin(away + turn)
-                if math.dist((gx, gy), center) < radius - 5:
-                    self.mode = "retreat"
-                    return (gx, gy), 2.0
-
         # Respect actual capture progress and the uninterrupted timer.
         supply = self.supply_goal(obs)
         if supply is not None:
@@ -314,16 +303,15 @@ class Bot(StarterBot):
             self.anchor = None
             self.recover_until = 0
         moving = move != [0.0, 0.0]
-        if self.mode == "retreat" and me["grounded"] and moving and me["energy"] > 10:
-            boost = True
-        elif me["grounded"] and moving and self.mode in ("roam", "circle"):
+        if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
             self.sprinting = energy > (0.36 if self.sprinting else 0.82)
             boost = boost or self.sprinting
         action.update(move=move, boost=boost, jump=jump)
 
         if obs["offer"]:
-            order = ("nanites", "plating", "armor", "servos", "jets", "reactor", "capacitor")
+            order = ("plating", "armor", "gun_damage", "gun_rate", "nanites", "laser_damage", "laser_charge",
+                     "gyros", "servos", "gun_mag", "mortar_reload", "jets", "reactor", "capacitor")
             choices = obs["offer"]["choices"]
             action["pick"] = min(range(len(choices)), key=lambda i:
                                  order.index(choices[i]["id"]) if choices[i]["id"] in order else len(order))
