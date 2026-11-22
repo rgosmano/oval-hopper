@@ -310,8 +310,7 @@ class Bot(StarterBot):
         action.update(move=move, boost=boost, jump=jump)
 
         if obs["offer"]:
-            order = ("plating", "armor", "gun_damage", "gun_rate", "nanites", "laser_damage", "laser_charge",
-                     "gyros", "servos", "gun_mag", "mortar_reload", "jets", "reactor", "capacitor")
+            order = ("nanites", "plating", "armor", "servos", "jets", "reactor", "capacitor")
             choices = obs["offer"]["choices"]
             action["pick"] = min(range(len(choices)), key=lambda i:
                                  order.index(choices[i]["id"]) if choices[i]["id"] in order else len(order))

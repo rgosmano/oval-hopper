@@ -189,20 +189,31 @@ class GroundGrid:
         group = self.component[start]
         key = (target, group)
         if self.route_key != key:
-            end = self.snap[target]
-            if self.component[end] != group:
-                end = min(self.members[group], key=lambda i: math.dist(self.positions[i], goal))
-            self.forward = [-1] * len(self.links)
-            self.forward[end] = end
-            queue = deque([end])
-            while queue:
-                i = queue.popleft()
-                for j in self.links[i]:
-                    if self.forward[j] < 0:
-                        self.forward[j] = i
-                        queue.append(j)
+            fields = self.__dict__.setdefault("fields", {})
+            if key not in fields:
+                end = self.snap[target]
+                if self.component[end] != group:
+                    end = min(self.members[group], key=lambda i: math.dist(self.positions[i], goal))
+                forward = [-1] * len(self.links)
+                forward[end] = end
+                if len(fields) >= 8:
+                    fields.pop(next(iter(fields)))
+                fields[key] = (forward, deque([end]))
+            self.forward, self.frontier = fields[key]
             self.route_key = key
-        next_cell = self.forward[start]
+        # Lazy BFS from the goal: expand only until it reaches us, and resume
+        # later if we step onto a cell it has not covered yet.
+        forward, queue = self.forward, self.frontier
+        links = self.links
+        while forward[start] < 0 and queue:
+            i = queue.popleft()
+            for j in links[i]:
+                if forward[j] < 0:
+                    forward[j] = i
+                    queue.append(j)
+        next_cell = forward[start]
+        if next_cell < 0:
+            return goal
         if start == target:
             return goal
         if collecting:
