@@ -48,6 +48,9 @@ class GroundGrid:
         levels = [height(x, y) for x, y in self.positions]
         self.ground_heights = levels
         blocked = bytearray(count)
+        # Sight grid: cells truly inside a structure tall enough to hide a 9 m
+        # mech (no walking margin, so grazing a corner does not count as cover).
+        self.opaque = bytearray(count)
         # The extra half cell keeps a grid edge from stepping across a thin wall.
         margin = radius + self.step / 2
         for prism in prisms:
@@ -75,6 +78,12 @@ class GroundGrid:
                     x1, x2 = ax + (lo - ay) * slope, ax + (hi - ay) * slope
                     spans.append((min(x1, x2) - margin, max(x1, x2) + margin))
                 crossings.sort()
+                for left, right in zip(crossings[::2], crossings[1::2]):
+                    first = max(0, math.ceil((left - self.x0) / self.step))
+                    last = min(self.width - 1, math.floor((right - self.x0) / self.step))
+                    for i in range(row * self.width + first, row * self.width + last + 1):
+                        if prism["top"] >= levels[i] + 8 and prism["base"] <= levels[i] + 6:
+                            self.opaque[i] = 1
                 spans.extend(zip(crossings[::2], crossings[1::2]))
                 for left, right in spans:
                     first = max(0, math.ceil((left - self.x0) / self.step))

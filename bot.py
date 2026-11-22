@@ -164,7 +164,7 @@ class Bot(StarterBot):
         for k in range(1, n):
             f = k / n
             c = g.cell((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
-            if g.snap[c] != c:
+            if g.opaque[c]:
                 return True
         return False
 
