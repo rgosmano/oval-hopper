@@ -77,7 +77,7 @@ class Bot(StarterBot):
         def lead(speed):
             px, py, pz = tx, ty, tz + 4.5
             for _ in range(3):
-                t = math.dist((px, py, pz), (x, y, muzzle)) / speed + 0.05
+                t = math.dist((px, py, pz), (x, y, muzzle)) / speed + 0.10
                 px, py, pz = tx + vx * t, ty + vy * t, tz + 4.5 + (vz * t if vz > 0 else 0)
             return px, py, pz
 
@@ -334,7 +334,7 @@ class Bot(StarterBot):
             self.combat(obs, action)
         elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
-        if (self.mode == "roam" and me["hp"] < 0.80 * me.get("max_hp", me["hp"])
+        if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
             action["fire"] = [False, False]
