@@ -20,6 +20,29 @@ class Bot(StarterBot):
         self.plan_at = 0
         self.mode = "circle"
         self.sprinting = False
+        self.forecast_key = None
+
+    def movement_zone(self, obs):
+        """Plan inside the circle the game will reach by the next travel deadline."""
+        zone = obs["zone"]
+        if "shrink_start" not in zone or not obs["self"]["in_zone"]:
+            return zone
+        now = obs["t"]
+        key = (int(now), zone["shrink_end"], tuple(zone["next_center"]), zone["next_radius"])
+        if key != self.forecast_key:
+            self.forecast_key = key
+            # During a hold, the circle starts changing at shrink_start. During
+            # a shrink, center/radius are already interpolated for the current tick.
+            start = max(now, zone["shrink_start"])
+            remaining = max(0.1, zone["shrink_end"] - start)
+            walk = max(1, obs["self"]["stats"]["walk_speed"])
+            excess = max(0, math.dist(obs["self"]["pos"][:2], zone["next_center"]) - zone["next_radius"])
+            lookahead = 6 + 1.6 * excess / walk
+            fraction = min(1, max(0, (now + lookahead - start) / remaining))
+            center = [a + fraction * (b - a) for a, b in zip(zone["center"], zone["next_center"])]
+            radius = zone["radius"] + fraction * (zone["next_radius"] - zone["radius"])
+            self.forecast = dict(zone, next_center=center, next_radius=radius)
+        return self.forecast
 
     def roam(self, obs, hops, others):
         me, zone = obs["self"], obs["zone"]
@@ -123,7 +146,7 @@ class Bot(StarterBot):
 
     def act(self, obs):
         action = super().act(obs)
-        goal, stop_radius = self.destination(obs)
+        goal, stop_radius = self.destination(dict(obs, zone=self.movement_zone(obs)))
         me, now = obs["self"], obs["t"]
         pos = me["pos"][:2]
         waypoint = self.grid.waypoint(pos, goal)

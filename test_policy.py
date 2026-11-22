@@ -61,6 +61,19 @@ def test_grid():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_rotation_uses_hold_and_shrink_deadlines(self):
+        with patch.object(GroundGrid, "load", return_value=test_grid()):
+            bot = Bot(HELLO)
+        obs = observation([-80, 0], [70, 0])
+        obs["zone"].update(center=[0, 0], radius=190, next_radius=45,
+                           shrink_start=60, shrink_end=100)
+        self.assertEqual(bot.movement_zone(obs)["next_radius"], 190)
+        obs["t"] = 90
+        obs["zone"].update(center=[52.5, 0], radius=81.25)
+        self.assertEqual(bot.movement_zone(obs)["next_radius"], 45)
+        obs["self"]["in_zone"] = False
+        self.assertIs(bot.movement_zone(obs), obs["zone"])
+
     def test_wide_circle_mobility(self):
         _, crowded_seconds, inside_seconds = trial(Bot, test_grid(), 7, True)
         self.assertLess(crowded_seconds, 10)
