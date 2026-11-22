@@ -20,29 +20,53 @@ class Bot(StarterBot):
         self.plan_at = 0
         self.mode = "circle"
         self.sprinting = False
-        self.forecast_key = None
+        self.seen_cubes = {}
+        self.drop_wait = {}
+        self.drop_retry = {}
 
-    def movement_zone(self, obs):
-        """Plan inside the circle the game will reach by the next travel deadline."""
-        zone = obs["zone"]
-        if "shrink_start" not in zone or not obs["self"]["in_zone"]:
-            return zone
+    def available_cubes(self, obs):
         now = obs["t"]
-        key = (int(now), zone["shrink_end"], tuple(zone["next_center"]), zone["next_radius"])
-        if key != self.forecast_key:
-            self.forecast_key = key
-            # During a hold, the circle starts changing at shrink_start. During
-            # a shrink, center/radius are already interpolated for the current tick.
-            start = max(now, zone["shrink_start"])
-            remaining = max(0.1, zone["shrink_end"] - start)
-            walk = max(1, obs["self"]["stats"]["walk_speed"])
-            excess = max(0, math.dist(obs["self"]["pos"][:2], zone["next_center"]) - zone["next_radius"])
-            lookahead = 6 + 1.6 * excess / walk
-            fraction = min(1, max(0, (now + lookahead - start) / remaining))
-            center = [a + fraction * (b - a) for a, b in zip(zone["center"], zone["next_center"])]
-            radius = zone["radius"] + fraction * (zone["next_radius"] - zone["radius"])
-            self.forecast = dict(zone, next_center=center, next_radius=radius)
-        return self.forecast
+        pos = obs["self"]["pos"]
+        visible = {cube["id"]: cube for cube in obs.get("cubes", [])}
+        for cube_id, (cube, last_seen) in list(self.seen_cubes.items()):
+            if now - last_seen > 16 or (cube_id not in visible and
+                                         math.dist(pos[:2], cube["pos"][:2]) <= 9):
+                del self.seen_cubes[cube_id]
+        self.seen_cubes.update((key, (item, now)) for key, item in visible.items())
+        return [cube for cube, _ in self.seen_cubes.values()]
+
+    def supply_goal(self, obs):
+        me, zone = obs["self"], obs["zone"]
+        pos, center, radius = me["pos"][:2], zone["next_center"], zone["next_radius"]
+        options = []
+        for drop in obs.get("drops", []):
+            drop_id = drop["id"]
+            if drop["holder"] not in (None, me["id"]) or self.drop_retry.get(drop_id, 0) > obs["t"]:
+                self.drop_wait.pop(drop_id, None)
+                continue
+            point = drop["pos"][:2]
+            if math.dist(point, center) > radius:
+                continue
+            distance = math.dist(pos, point)
+            inside = distance < drop["radius"]
+            progress = drop.get("progress", 0)
+            if inside and drop["lands_in"] == 0 and "progress" in drop:
+                previous, since = self.drop_wait.get(drop_id, (progress, obs["t"]))
+                if progress != previous:
+                    since = obs["t"]
+                self.drop_wait[drop_id] = (progress, since)
+                if obs["t"] - since > 3:
+                    self.drop_retry[drop_id] = obs["t"] + 12
+                    continue
+            else:
+                self.drop_wait.pop(drop_id, None)
+            arrival = 1.25 * max(0, distance - drop["radius"]) / max(1, me["stats"]["walk_speed"])
+            finish = max(arrival, drop["lands_in"]) + drop.get("capture_s", 4) - progress
+            if finish <= 37:
+                options.append((finish, drop["id"], point, drop["radius"]))
+        if options:
+            _, _, point, capture_radius = min(options)
+            return point, capture_radius * 0.55
 
     def roam(self, obs, hops, others):
         me, zone = obs["self"], obs["zone"]
@@ -88,27 +112,24 @@ class Bot(StarterBot):
             return center, min(2.0, radius * 0.1)
 
         # Respect actual capture progress and the uninterrupted timer.
-        for drop in obs.get("drops", []):
-            point = drop["pos"][:2]
-            reach = math.dist(pos, point)
-            if (drop["holder"] in (None, me["id"]) and
-                    math.dist(point, center) + drop["radius"] <= radius and
-                    reach < 150 and drop["lands_in"] <= reach / walk + 4 and
-                    (nearest > 50 or drop.get("progress", 0) >= drop.get("capture_s", 4) - 1)):
-                self.mode = "drop"
-                return point, drop["radius"] * 0.55
+        supply = self.supply_goal(obs)
+        if supply is not None:
+            self.mode = "drop"
+            return supply
 
-        if nearest > 50:
+        cubes = self.available_cubes(obs)
+        if cubes or nearest > 50:
             options = []
-            candidates = [(item, "cube") for item in obs.get("cubes", [])]
-            if me["weapons"][1] is None:
+            candidates = [(item, "cube") for item in cubes]
+            if nearest > 50 and me["weapons"][1] is None:
                 candidates += [(item, "pickup") for item in obs["pickups"] if item["kind"] != "gun"]
             if nearest > 100 and me["hp"] >= 0.8 * me.get("max_hp", me["hp"]):
                 candidates += [(item, "crate") for item in obs.get("crates", [])]
             for item, kind in candidates:
                 point = item["pos"][:2]
                 distance = math.dist(pos, point)
-                if abs(item["pos"][2] - me["pos"][2]) > 4 or distance > 60:
+                limit = (100 if nearest > 50 else 12) if kind == "cube" else 60
+                if abs(item["pos"][2] - me["pos"][2]) > 4 or distance > limit:
                     continue
                 if math.dist(point, center) > radius and (slack < 16 or
                         math.dist(point, zone.get("center", center)) + 8 > zone.get("radius", radius)):
@@ -146,7 +167,7 @@ class Bot(StarterBot):
 
     def act(self, obs):
         action = super().act(obs)
-        goal, stop_radius = self.destination(dict(obs, zone=self.movement_zone(obs)))
+        goal, stop_radius = self.destination(obs)
         me, now = obs["self"], obs["t"]
         pos = me["pos"][:2]
         waypoint = self.grid.waypoint(pos, goal)

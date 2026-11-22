@@ -61,18 +61,37 @@ def test_grid():
 
 
 class PolicyTests(unittest.TestCase):
-    def test_rotation_uses_hold_and_shrink_deadlines(self):
+    def test_cube_survives_one_missed_observation(self):
         with patch.object(GroundGrid, "load", return_value=test_grid()):
             bot = Bot(HELLO)
-        obs = observation([-80, 0], [70, 0])
-        obs["zone"].update(center=[0, 0], radius=190, next_radius=45,
-                           shrink_start=60, shrink_end=100)
-        self.assertEqual(bot.movement_zone(obs)["next_radius"], 190)
-        obs["t"] = 90
-        obs["zone"].update(center=[52.5, 0], radius=81.25)
-        self.assertEqual(bot.movement_zone(obs)["next_radius"], 45)
-        obs["self"]["in_zone"] = False
-        self.assertIs(bot.movement_zone(obs), obs["zone"])
+        obs = observation([0, 0], [0, 0])
+        obs["zone"]["next_radius"] = 150
+        obs["cubes"] = [dict(id=5000, pos=[70, 0, 0])]
+        self.assertEqual(bot.destination(obs)[0], [70, 0])
+        obs.update(t=4, cubes=[])
+        self.assertEqual(bot.destination(obs)[0], [70, 0])
+        obs["self"]["pos"] = [68, 0, 0]
+        bot.destination(obs)
+        self.assertNotEqual(bot.mode, "cube")
+
+    def test_early_drop_travel_and_stalled_capture(self):
+        with patch.object(GroundGrid, "load", return_value=test_grid()):
+            bot = Bot(HELLO)
+        obs = observation([-120, 0], [0, 0])
+        obs["zone"]["next_radius"] = 150
+        drop = dict(id=20000, pos=[80, 0, 0], holder=None, lands_in=25,
+                    progress=0, capture_s=4, radius=8)
+        obs["drops"] = [drop]
+        self.assertEqual(bot.destination(obs)[0], [80, 0])
+        obs["self"]["pos"] = [80, 0, 0]
+        obs["t"], drop["lands_in"] = 26, 0
+        self.assertIsNotNone(bot.supply_goal(obs))
+        obs["t"] = 30
+        self.assertIsNone(bot.supply_goal(obs))
+        obs["t"] = 33
+        self.assertIsNone(bot.supply_goal(obs))
+        obs["t"] = 44
+        self.assertIsNotNone(bot.supply_goal(obs))
 
     def test_wide_circle_mobility(self):
         _, crowded_seconds, inside_seconds = trial(Bot, test_grid(), 7, True)
