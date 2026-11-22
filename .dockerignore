@@ -1,5 +1,7 @@
 *
-!bot.py
-!navigation.py
-!starter.py
-!mechfight.py
+!go.mod
+!main.go
+!brain.go
+!types.go
+!world.go
+!export.go

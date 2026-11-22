@@ -1,5 +1,11 @@
-FROM python:3.13.9-slim-bookworm@sha256:b685a4fa58bb19d1814d78a1ec0f0208f351452724f78b20212c984d6e124a34
-WORKDIR /bot
-COPY mechfight.py starter.py navigation.py bot.py ./
+# Go bot based on giddygiddyboy's MIT-licensed Mech Royale bot (see LICENSE-giddygiddyboy).
+FROM golang:1.26.1-bookworm@sha256:ab3d6955bbc813a0f3fdf220c1d817dd89c0b3f283777db8ece4a32fe7858edd AS build
+WORKDIR /src
+COPY go.mod main.go brain.go types.go world.go export.go ./
+RUN mkdir -p mech cmd/bot && mv brain.go types.go world.go export.go mech/ && mv main.go cmd/bot/ \
+ && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -trimpath -ldflags="-s -w" -o /mechbot ./cmd/bot
+
+FROM scratch
+COPY --from=build /mechbot /mechbot
 USER 65534:65534
-ENTRYPOINT ["python3", "-B", "-u", "/bot/bot.py"]
+ENTRYPOINT ["/mechbot"]
