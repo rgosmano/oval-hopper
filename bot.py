@@ -55,31 +55,6 @@ class Bot(StarterBot):
             if held is not None:
                 action["drop"] = 1
 
-    def keep_range(self, obs, move):
-        """With a laser (hitscan, 280 m) fight from 130+ m: back off from close
-        mechs while still shooting. Gun accuracy falls with range; ours does not."""
-        me = obs["self"]
-        bonus = me["weapons"][1]
-        if not bonus or bonus["kind"] != "laser" or self.mode == "circle" or not me["in_zone"]:
-            return move
-        x, y = me["pos"][:2]
-        near = [m for m in obs["mechs"] if m["kind"] == "mech" and math.dist(m["pos"][:2], (x, y)) < 130]
-        if not near:
-            return move
-        o = min(near, key=lambda m: math.dist(m["pos"][:2], (x, y)))
-        dx, dy = x - o["pos"][0], y - o["pos"][1]
-        d = math.hypot(dx, dy) or 1
-        zone = obs["zone"]
-        cx, cy = zone["next_center"]
-        for turn in (0, 0.5, -0.5, 1.0, -1.0):
-            a = math.atan2(dy, dx) + turn
-            mx, my = math.cos(a), math.sin(a)
-            px, py = x + 8 * mx, y + 8 * my
-            cell = self.grid.cell((px, py))
-            if self.grid.snap[cell] == cell and math.dist((px, py), (cx, cy)) < zone["next_radius"] - 5:
-                return [mx, my]
-        return move
-
     def combat(self, obs, action):
         """Aim at the best visible mech, leading the shot; lob the mortar on an arc."""
         me = obs["self"]
@@ -338,7 +313,6 @@ class Bot(StarterBot):
         else:
             self.anchor = None
             self.recover_until = 0
-        move = self.keep_range(obs, move)
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
