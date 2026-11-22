@@ -174,7 +174,7 @@ class Bot(StarterBot):
             angle = me["id"] * math.tau / 16
         direction = 1 if me["id"] % 2 else -1
         tangent = (-math.sin(angle) * direction, math.cos(angle) * direction)
-        preferred_radius = radius * 0.67
+        preferred_radius = radius * 0.60
         best_value = -math.inf
         best = None
         for cell, depth in hops.items():
@@ -313,7 +313,7 @@ class Bot(StarterBot):
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
-            self.sprinting = energy > (0.25 if self.sprinting else 0.70)
+            self.sprinting = energy > (0.36 if self.sprinting else 0.82)
             boost = boost or self.sprinting
         action.update(move=move, boost=boost, jump=jump)
 
