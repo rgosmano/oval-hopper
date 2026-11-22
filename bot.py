@@ -7,6 +7,7 @@ from starter import Bot as StarterBot
 
 class Bot(StarterBot):
     name = "Oval Hopper"
+    bonus_rank = {"mortar": 1, "lightning": 2, "laser": 3}
 
     def __init__(self, hello):
         super().__init__(hello)
@@ -35,6 +36,24 @@ class Bot(StarterBot):
                 del cache[key]
         cache.update((key, (item, now)) for key, item in visible.items())
         return [item for item, _ in cache.values()]
+
+    def equip_bonus(self, obs, action):
+        me = obs["self"]
+        held = me["weapons"][1]
+        rank = self.bonus_rank.get((held or {}).get("kind"), 0)
+        # The game requires an explicit slot number for a swap. Compare every
+        # pickup within collection range, including items passed on another errand.
+        eligible = []
+        for p in obs["pickups"]:
+            value = self.bonus_rank.get(p["kind"], 0)
+            distance = math.dist(p["pos"][:2], me["pos"][:2])
+            if value > rank and distance <= self.reach and abs(p["pos"][2] - me["pos"][2]) <= 4:
+                eligible.append((-value, distance, p["id"]))
+        action.pop("take", None)
+        if eligible:
+            action["take"] = min(eligible)[2]
+            if held is not None:
+                action["drop"] = 1
 
     def supply_goal(self, obs):
         me, zone = obs["self"], obs["zone"]
@@ -119,8 +138,9 @@ class Bot(StarterBot):
             return supply
 
         cubes = self.remembered(obs, obs.get("cubes", []), self.seen_cubes)
-        bonuses = self.remembered(obs, [p for p in obs["pickups"] if p["kind"] in ("laser", "lightning")],
-                                  self.seen_bonuses) if me["weapons"][1] is None else []
+        held_rank = self.bonus_rank.get((me["weapons"][1] or {}).get("kind"), 0)
+        seen = self.remembered(obs, obs["pickups"], self.seen_bonuses)
+        bonuses = [p for p in seen if self.bonus_rank.get(p["kind"], 0) > max(1, held_rank)]
         if cubes or bonuses or nearest > 50:
             options = []
             candidates = [(item, "cube") for item in cubes]
@@ -133,6 +153,8 @@ class Bot(StarterBot):
                 limit = (100 if nearest > 50 else 12) if kind == "cube" else 60
                 if kind == "pickup":
                     limit = 165 if nearest > 50 else 40
+                    if held_rank:
+                        limit = min(75, limit)
                 cell = self.grid.cell(point)
                 height_reference = me["pos"][2] if distance < 10 else self.grid.ground_heights[cell]
                 if abs(item["pos"][2] - height_reference) > 4 or distance > limit:
@@ -238,15 +260,7 @@ class Bot(StarterBot):
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
             action["fire"] = [False, False]
-        if action.get("take") is not None:
-            if not any(p["id"] == action["take"] and abs(p["pos"][2] - me["pos"][2]) <= 4
-                       for p in obs["pickups"]):
-                action.pop("take")
-        if self.mode == "pickup" and math.dist(pos, goal) <= self.reach:
-            eligible = [p for p in obs["pickups"] if p["pos"][:2] == goal and
-                        abs(p["pos"][2] - me["pos"][2]) <= 4 and p["kind"] != "gun"]
-            if eligible:
-                action["take"] = eligible[0]["id"]
+        self.equip_bonus(obs, action)
         bonus = me["weapons"][1]
         if bonus and action.get("fire", [False, False])[1]:
             if bonus["kind"] == "laser":

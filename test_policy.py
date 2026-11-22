@@ -61,6 +61,19 @@ def test_grid():
 
 
 class PolicyTests(unittest.TestCase):
+    def test_best_reachable_bonus_swaps_into_second_slot(self):
+        with patch.object(GroundGrid, "load", return_value=test_grid()):
+            bot = Bot(HELLO)
+        obs = observation([0, 0], [0, 0])
+        obs["self"]["weapons"][1] = dict(kind="lightning")
+        obs["pickups"] = [dict(id=1, kind="laser", pos=[0, 0, 20]),
+                          dict(id=2, kind="mortar", pos=[1, 0, 0]),
+                          dict(id=3, kind="laser", pos=[3, 0, 0])]
+        action = bot.act(obs)
+        self.assertEqual((action["take"], action["drop"]), (3, 1))
+        obs["self"]["weapons"][1] = dict(kind="laser", charge=0, stats=dict(charge=0.75))
+        self.assertNotIn("take", bot.act(obs))
+
     def test_bonus_reachable_across_inclined_game_floor(self):
         grid = GroundGrid(dict(minX=-160, minY=-100, maxX=160, maxY=100),
                           [], lambda x, y: 0.08*x, STATS)
