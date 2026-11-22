@@ -2021,7 +2021,8 @@ func squadParams(p Params) Params {
 	p.Peek = false
 	p.LaserFirst = true
 	p.LaserRange = 150
-	p.DodgeBoost = 10 // practice: jet out of incoming bullet lines
+	p.DodgeBoost = 20 // practice: jet out of incoming bullet lines
+	p.FightBoost = 50 // practice: sprint in fights while the laser is not charging
 	p.LootRadius = 150
 	p.CrateUntil = 1e9
 	p.Stick = 120
