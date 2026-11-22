@@ -26,12 +26,12 @@ class Bot(StarterBot):
         self.drop_wait = {}
         self.drop_retry = {}
 
-    def remembered(self, obs, items, cache):
+    def remembered(self, obs, items, cache, ttl=16):
         now = obs["t"]
         pos = obs["self"]["pos"]
         visible = {item["id"]: item for item in items}
         for key, (item, last_seen) in list(cache.items()):
-            if now - last_seen > 16 or (key not in visible and
+            if now - last_seen > ttl or (key not in visible and
                                          math.dist(pos[:2], item["pos"][:2]) <= 9):
                 del cache[key]
         cache.update((key, (item, now)) for key, item in visible.items())
@@ -54,6 +54,31 @@ class Bot(StarterBot):
             action["take"] = min(eligible)[2]
             if held is not None:
                 action["drop"] = 1
+
+    def keep_range(self, obs, move):
+        """With a laser (hitscan, 280 m) fight from 130+ m: back off from close
+        mechs while still shooting. Gun accuracy falls with range; ours does not."""
+        me = obs["self"]
+        bonus = me["weapons"][1]
+        if not bonus or bonus["kind"] != "laser" or self.mode == "circle" or not me["in_zone"]:
+            return move
+        x, y = me["pos"][:2]
+        near = [m for m in obs["mechs"] if m["kind"] == "mech" and math.dist(m["pos"][:2], (x, y)) < 130]
+        if not near:
+            return move
+        o = min(near, key=lambda m: math.dist(m["pos"][:2], (x, y)))
+        dx, dy = x - o["pos"][0], y - o["pos"][1]
+        d = math.hypot(dx, dy) or 1
+        zone = obs["zone"]
+        cx, cy = zone["next_center"]
+        for turn in (0, 0.5, -0.5, 1.0, -1.0):
+            a = math.atan2(dy, dx) + turn
+            mx, my = math.cos(a), math.sin(a)
+            px, py = x + 8 * mx, y + 8 * my
+            cell = self.grid.cell((px, py))
+            if self.grid.snap[cell] == cell and math.dist((px, py), (cx, cy)) < zone["next_radius"] - 5:
+                return [mx, my]
+        return move
 
     def combat(self, obs, action):
         """Aim at the best visible mech, leading the shot; lob the mortar on an arc."""
@@ -119,7 +144,14 @@ class Bot(StarterBot):
         action["aim"] = aim
         # Only shoot once the torso is roughly on target, so ammo is not wasted.
         off = abs(math.remainder(aim[0] - yaw_now, math.tau))
-        action["fire"] = [fire_gun and off < 0.25, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
+        # Fire only when the torso is within the target's angular width (plus a
+        # little slack), so turning does not burn the magazine into empty air.
+        pitch_off = abs(aim[1] - me.get("aim", [0, 0])[1])
+        width = math.atan2(2.5, max(1.0, flat)) + 0.015
+        on_target = off < width and pitch_off < width + 0.03
+        self.laser_on_target = on_target
+        action["fire"] = [fire_gun and on_target,
+                          fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
         if gun and gun.get("ammo", 1) == 0 and gun.get("reload", 0) == 0:
             action["reload"] = True
 
@@ -155,62 +187,6 @@ class Bot(StarterBot):
         if options:
             _, _, point, capture_radius = min(options)
             return point, capture_radius * 0.55
-
-    def blocked_line(self, a, b):
-        """True if a building cell lies between points a and b on the nav grid."""
-        g = self.grid
-        d = math.dist(a, b)
-        n = int(d / 2.5)
-        for k in range(1, n):
-            f = k / n
-            c = g.cell((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
-            if g.opaque[c]:
-                return True
-        return False
-
-    def cover_goal(self, obs, actors):
-        """When hurt and seen, go to the nearest reachable cell hidden from every
-        visible mech, and stay there until healed (regen needs 5 s without combat)."""
-        me = obs["self"]
-        pos = me["pos"][:2]
-        frac = me["hp"] / max(1, me.get("max_hp", 1400))
-        zone = obs["zone"]
-        threats = [p for p in actors if math.dist(pos, p) < 200]
-        hiding = getattr(self, "cover", None)
-        if hiding is not None:
-            if frac > 0.9 or math.dist(hiding, zone["next_center"]) > zone["next_radius"] - 3 and \
-                    obs["t"] > zone.get("shrink_start", 0) - 10:
-                self.cover = None
-                return None
-            if any(not self.blocked_line(p, hiding) for p in threats):
-                self.cover = None  # spotted from a new angle: re-plan below
-            else:
-                return hiding
-        if frac >= 0.55 or not threats:
-            return None
-        if obs["t"] < getattr(self, "cover_retry", 0):
-            return None
-        self.cover_retry = obs["t"] + 1.0
-        hops = self.grid.local_distances(pos, 8)
-        center, radius = zone["next_center"], zone["next_radius"]
-        best = None
-        threats = sorted(threats, key=lambda p: math.dist(pos, p))[:3]
-        checked = 0
-        for cell, depth in sorted(hops.items(), key=lambda kv: kv[1]):
-            if best is not None and depth > best[0]:
-                break
-            checked += 1
-            if checked > 90:
-                break
-            point = self.grid.positions[cell]
-            if math.dist(point, center) > radius - 5 and obs["t"] > zone.get("shrink_start", 0) - 15:
-                continue
-            if all(self.blocked_line(p, point) for p in threats):
-                best = (depth, point)
-        if best is None:
-            return None
-        self.cover = best[1]
-        return self.cover
 
     def roam(self, obs, hops, others):
         me, zone = obs["self"], obs["zone"]
@@ -255,11 +231,6 @@ class Bot(StarterBot):
             self.mode = "circle"
             return center, min(2.0, radius * 0.1)
 
-        cover = self.cover_goal(obs, actors)
-        if cover is not None:
-            self.mode = "cover"
-            return cover, 1.5
-
         # Respect actual capture progress and the uninterrupted timer.
         supply = self.supply_goal(obs)
         if supply is not None:
@@ -268,7 +239,8 @@ class Bot(StarterBot):
 
         cubes = self.remembered(obs, obs.get("cubes", []), self.seen_cubes)
         held_rank = self.bonus_rank.get((me["weapons"][1] or {}).get("kind"), 0)
-        seen = self.remembered(obs, obs["pickups"], self.seen_bonuses)
+        # Weapons on the ground never despawn: remember them for two minutes.
+        seen = self.remembered(obs, obs["pickups"], self.seen_bonuses, ttl=120)
         bonuses = [p for p in seen if self.bonus_rank.get(p["kind"], 0) > max(1, held_rank)]
         if cubes or bonuses or nearest > 50:
             options = []
@@ -284,6 +256,9 @@ class Bot(StarterBot):
                     limit = 165 if nearest > 50 else 40
                     if held_rank:
                         limit = min(75, limit)
+                    if item["kind"] == "laser":
+                        # The laser wins far more fights than anything else: go get it.
+                        limit = 220 if nearest > 50 else 90
                 cell = self.grid.cell(point)
                 height_reference = me["pos"][2] if distance < 10 else self.grid.ground_heights[cell]
                 if abs(item["pos"][2] - height_reference) > 4 or distance > limit:
@@ -293,7 +268,7 @@ class Bot(StarterBot):
                     continue
                 value = {"cube": 0, "pickup": 5, "crate": 16}[kind] + distance
                 if kind == "pickup":
-                    value -= 50 if item["kind"] == "laser" else 35
+                    value -= 150 if item["kind"] == "laser" else 35
                 options.append((value, item["id"], kind, point, item))
             if options:
                 for _, _, kind, point, item in sorted(options):
@@ -363,6 +338,7 @@ class Bot(StarterBot):
         else:
             self.anchor = None
             self.recover_until = 0
+        move = self.keep_range(obs, move)
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
@@ -387,19 +363,33 @@ class Bot(StarterBot):
             self.combat(obs, action)
         elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
+        if self.mode != "crate" and not any(a["kind"] == "mech" for a in obs["mechs"]):
+            gun = me["weapons"][0]
+            # Top up a partial magazine between fights.
+            if gun and gun.get("reload", 0) == 0 and gun.get("ammo", 12) < gun.get("stats", {}).get("mag", 12):
+                action["reload"] = True
         if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
-            action["fire"] = [False, False]
-        if self.mode == "cover" and all(math.dist(pos, a["pos"][:2]) > 45 for a in obs["mechs"]):
             action["fire"] = [False, False]
         self.equip_bonus(obs, action)
         bonus = me["weapons"][1]
         if bonus and action.get("fire", [False, False])[1]:
             if bonus["kind"] == "laser":
-                # Holding a full charge keeps the avatar at half walking speed.
-                action["fire"][1] = (me["in_zone"] and
-                                     bonus.get("charge", 0) < bonus["stats"]["charge"] - 1e-6)
+                full = bonus.get("charge", 0) >= bonus["stats"]["charge"] - 1e-6
+                if not full:
+                    self.full_since = None
+                    action["fire"][1] = me["in_zone"]
+                else:
+                    # Hold a full charge (the game allows hold_s, 2 s) until the
+                    # torso is on target, then release; never waste the 315-damage shot.
+                    if getattr(self, "full_since", None) is None:
+                        self.full_since = obs["t"]
+                    held = obs["t"] - self.full_since
+                    on = getattr(self, "laser_on_target", True)
+                    action["fire"][1] = me["in_zone"] and not on and held < 1.6
+                    if not action["fire"][1]:
+                        self.full_since = None
             elif bonus["kind"] == "lightning":
                 action["fire"][1] = me["energy"] > 0.30 * me.get("max_energy", 100)
         mf.draw.clear()
