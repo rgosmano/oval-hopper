@@ -144,7 +144,43 @@ class GroundGrid:
                     queue.append(neighbor)
         return hops
 
-    def waypoint(self, pos, goal):
+    def collection_shortcut(self, pos, end):
+        """Can a token collector cross the straight segment without cutting a tile corner?"""
+        start = self.cell(pos)
+        col, row = start % self.width, start // self.width
+        ex, ey = self.positions[end]
+        dx, dy = ex-pos[0], ey-pos[1]
+        sx, sy = (1 if dx > 0 else -1), (1 if dy > 0 else -1)
+        cross_x = ((self.x0 + (col + 0.5*sx)*self.step - pos[0])/dx) if dx else math.inf
+        cross_y = ((self.y0 + (row + 0.5*sy)*self.step - pos[1])/dy) if dy else math.inf
+        step_x = self.step/abs(dx) if dx else math.inf
+        step_y = self.step/abs(dy) if dy else math.inf
+        cell = start
+        while cell != end:
+            if abs(cross_x - cross_y) < 1e-8:
+                a, b = cell + sx, cell + sy*self.width
+                diag = a + sy*self.width
+                if (a not in self.links[cell] or b not in self.links[cell]
+                        or diag not in self.links[a] or diag not in self.links[b]):
+                    return False
+                cell = diag
+                cross_x += step_x
+                cross_y += step_y
+            elif cross_x < cross_y:
+                nxt = cell + sx
+                if nxt not in self.links[cell]:
+                    return False
+                cell = nxt
+                cross_x += step_x
+            else:
+                nxt = cell + sy*self.width
+                if nxt not in self.links[cell]:
+                    return False
+                cell = nxt
+                cross_y += step_y
+        return True
+
+    def waypoint(self, pos, goal, collecting=False):
         raw = self.cell(pos)
         start = self.snap[raw]
         if raw != start:
@@ -169,4 +205,14 @@ class GroundGrid:
         next_cell = self.forward[start]
         if start == target:
             return goal
+        if collecting:
+            chain = [next_cell]
+            for _ in range(7):
+                nxt = self.forward[chain[-1]]
+                if nxt == chain[-1]:
+                    break
+                chain.append(nxt)
+            for cell in reversed(chain[1:]):
+                if self.collection_shortcut(pos, cell):
+                    return self.positions[cell]
         return self.positions[next_cell]

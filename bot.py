@@ -198,7 +198,7 @@ class Bot(StarterBot):
         goal, stop_radius = self.destination(obs)
         me, now = obs["self"], obs["t"]
         pos = me["pos"][:2]
-        waypoint = self.grid.waypoint(pos, goal)
+        waypoint = self.grid.waypoint(pos, goal, collecting=self.mode in ("drop", "cube", "pickup"))
         dx, dy = waypoint[0] - pos[0], waypoint[1] - pos[1]
         distance = math.hypot(dx, dy)
         move = [0.0, 0.0]
