@@ -156,6 +156,62 @@ class Bot(StarterBot):
             _, _, point, capture_radius = min(options)
             return point, capture_radius * 0.55
 
+    def blocked_line(self, a, b):
+        """True if a building cell lies between points a and b on the nav grid."""
+        g = self.grid
+        d = math.dist(a, b)
+        n = int(d / 2.5)
+        for k in range(1, n):
+            f = k / n
+            c = g.cell((a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f))
+            if g.snap[c] != c:
+                return True
+        return False
+
+    def cover_goal(self, obs, actors):
+        """When hurt and seen, go to the nearest reachable cell hidden from every
+        visible mech, and stay there until healed (regen needs 5 s without combat)."""
+        me = obs["self"]
+        pos = me["pos"][:2]
+        frac = me["hp"] / max(1, me.get("max_hp", 1400))
+        zone = obs["zone"]
+        threats = [p for p in actors if math.dist(pos, p) < 200]
+        hiding = getattr(self, "cover", None)
+        if hiding is not None:
+            if frac > 0.9 or math.dist(hiding, zone["next_center"]) > zone["next_radius"] - 3 and \
+                    obs["t"] > zone.get("shrink_start", 0) - 10:
+                self.cover = None
+                return None
+            if any(not self.blocked_line(p, hiding) for p in threats):
+                self.cover = None  # spotted from a new angle: re-plan below
+            else:
+                return hiding
+        if frac >= 0.55 or not threats:
+            return None
+        if obs["t"] < getattr(self, "cover_retry", 0):
+            return None
+        self.cover_retry = obs["t"] + 1.0
+        hops = self.grid.local_distances(pos, 8)
+        center, radius = zone["next_center"], zone["next_radius"]
+        best = None
+        threats = sorted(threats, key=lambda p: math.dist(pos, p))[:3]
+        checked = 0
+        for cell, depth in sorted(hops.items(), key=lambda kv: kv[1]):
+            if best is not None and depth > best[0]:
+                break
+            checked += 1
+            if checked > 90:
+                break
+            point = self.grid.positions[cell]
+            if math.dist(point, center) > radius - 5 and obs["t"] > zone.get("shrink_start", 0) - 15:
+                continue
+            if all(self.blocked_line(p, point) for p in threats):
+                best = (depth, point)
+        if best is None:
+            return None
+        self.cover = best[1]
+        return self.cover
+
     def roam(self, obs, hops, others):
         me, zone = obs["self"], obs["zone"]
         x, y = me["pos"][:2]
@@ -198,6 +254,11 @@ class Bot(StarterBot):
         if not me["in_zone"] or radius <= 12 or (excess > 0 and slack < 8):
             self.mode = "circle"
             return center, min(2.0, radius * 0.1)
+
+        cover = self.cover_goal(obs, actors)
+        if cover is not None:
+            self.mode = "cover"
+            return cover, 1.5
 
         # Respect actual capture progress and the uninterrupted timer.
         supply = self.supply_goal(obs)
@@ -329,6 +390,8 @@ class Bot(StarterBot):
         if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
             # Dealing any damage restarts the game's passive-healing clock.
+            action["fire"] = [False, False]
+        if self.mode == "cover" and all(math.dist(pos, a["pos"][:2]) > 45 for a in obs["mechs"]):
             action["fire"] = [False, False]
         self.equip_bonus(obs, action)
         bonus = me["weapons"][1]
