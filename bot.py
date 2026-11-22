@@ -55,6 +55,74 @@ class Bot(StarterBot):
             if held is not None:
                 action["drop"] = 1
 
+    def combat(self, obs, action):
+        """Aim at the best visible mech, leading the shot; lob the mortar on an arc."""
+        me = obs["self"]
+        x, y, z = me["pos"]
+        muzzle = z + me["stats"].get("muzzle_height", 7)
+        yaw_now = me.get("aim", [0, 0])[0]
+
+        def score(m):
+            d = math.dist(m["pos"][:2], (x, y))
+            turn = abs(math.remainder(math.atan2(m["pos"][1] - y, m["pos"][0] - x) - yaw_now, math.tau))
+            hp = m.get("hp", 700) / max(1, m.get("max_hp", 1400))
+            return d + 40 * turn + 60 * hp
+
+        enemies = [m for m in obs["mechs"] if m["kind"] == "mech"]
+        target = min(enemies, key=score)
+        tx, ty, tz = target["pos"]
+        vx, vy, vz = target.get("vel", [0, 0, 0])
+        gun, bonus = me["weapons"][0], me["weapons"][1]
+
+        def lead(speed):
+            px, py, pz = tx, ty, tz + 4.5
+            for _ in range(3):
+                t = math.dist((px, py, pz), (x, y, muzzle)) / speed
+                px, py, pz = tx + vx * t, ty + vy * t, tz + 4.5 + (vz * t if vz > 0 else 0)
+            return px, py, pz
+
+        gun_speed = (gun or {}).get("stats", {}).get("speed", 252)
+        px, py, pz = lead(gun_speed)
+        flat = math.hypot(px - x, py - y)
+        aim = [math.atan2(py - y, px - x), math.atan2(pz - muzzle, max(0.1, flat))]
+        in_gun_range = flat <= (gun or {}).get("stats", {}).get("range", 230)
+        fire_gun = bool(gun) and in_gun_range
+        fire_bonus = False
+        if bonus and bonus["kind"] == "mortar":
+            stats = bonus.get("stats", {})
+            v, g = stats.get("speed", 72), stats.get("gravity", 22)
+            d0 = math.hypot(tx - x, ty - y)
+            if 18 < d0 < 0.95 * v * v / g and bonus.get("cooldown", 0) <= 0:
+                # Low-arc solution, iterated for flight-time lead.
+                mx, my, md = tx, ty, d0
+                pitch = None
+                for _ in range(3):
+                    dh = tz + 1 - (z + me["stats"].get("height", 9) + 0.5)
+                    disc = v ** 4 - g * (g * md * md + 2 * dh * v * v)
+                    if disc < 0:
+                        pitch = None
+                        break
+                    pitch = math.atan2(v * v - math.sqrt(disc), g * md)
+                    t = md / max(1e-3, v * math.cos(pitch))
+                    mx, my = tx + vx * t, ty + vy * t
+                    md = math.hypot(mx - x, my - y)
+                if pitch is not None:
+                    aim = [math.atan2(my - y, mx - x), pitch]
+                    fire_bonus, fire_gun = True, False
+        elif bonus and bonus["kind"] == "laser":
+            # Hitscan: aim at the current centre of mass.
+            fire_bonus = flat <= bonus.get("stats", {}).get("range", 280)
+            if fire_bonus and bonus.get("charge", 0) > 0:
+                aim = [math.atan2(ty - y, tx - x), math.atan2(tz + 4.5 - muzzle, max(0.1, flat))]
+        elif bonus and bonus["kind"] == "lightning":
+            fire_bonus = flat <= bonus.get("stats", {}).get("range", 45)
+        action["aim"] = aim
+        # Only shoot once the torso is roughly on target, so ammo is not wasted.
+        off = abs(math.remainder(aim[0] - yaw_now, math.tau))
+        action["fire"] = [fire_gun and off < 0.25, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
+        if gun and gun.get("ammo", 1) == 0 and gun.get("reload", 0) == 0:
+            action["reload"] = True
+
     def supply_goal(self, obs):
         me, zone = obs["self"], obs["zone"]
         pos, center, radius = me["pos"][:2], zone["next_center"], zone["next_radius"]
@@ -254,7 +322,9 @@ class Bot(StarterBot):
             action["aim"] = [math.atan2(dy, dx), math.atan2(bz + 1 - me["pos"][2] -
                              me["stats"].get("muzzle_height", 7), math.hypot(dx, dy))]
             action["fire"] = [True, False]
-        elif not any(a["kind"] == "mech" for a in obs["mechs"]) and moving:
+        elif any(a["kind"] == "mech" for a in obs["mechs"]):
+            self.combat(obs, action)
+        elif moving:
             action["aim"] = [math.atan2(move[1], move[0]), 0.0]
         if (self.mode == "roam" and me["hp"] < 0.65 * me.get("max_hp", me["hp"])
                 and all(math.dist(pos, actor["pos"][:2]) > 50 for actor in obs["mechs"])):
