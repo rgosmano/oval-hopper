@@ -85,7 +85,8 @@ class Bot(StarterBot):
         px, py, pz = lead(gun_speed)
         flat = math.hypot(px - x, py - y)
         aim = [math.atan2(py - y, px - x), math.atan2(pz - muzzle, max(0.1, flat))]
-        in_gun_range = flat <= (gun or {}).get("stats", {}).get("range", 230)
+        # Replays: shots beyond ~130 m hit only 8-20%; save the magazine for closer targets.
+        in_gun_range = flat <= min(130, (gun or {}).get("stats", {}).get("range", 230))
         fire_gun = bool(gun) and in_gun_range
         fire_bonus = False
         if bonus and bonus["kind"] == "mortar":
@@ -123,7 +124,10 @@ class Bot(StarterBot):
         action["aim"] = aim
         # Only shoot once the torso is roughly on target, so ammo is not wasted.
         off = abs(math.remainder(aim[0] - yaw_now, math.tau))
-        action["fire"] = [fire_gun and off < 0.25, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
+        pitch_off = abs(aim[1] - me.get("aim", [0, 0])[1])
+        width = math.atan2(2.5, max(1.0, flat)) + 0.015
+        on_target = off < width and pitch_off < width + 0.03
+        action["fire"] = [fire_gun and on_target, fire_bonus and (off < 0.15 or bonus["kind"] == "laser")]
         if gun and gun.get("ammo", 1) == 0 and gun.get("reload", 0) == 0:
             action["reload"] = True
 
