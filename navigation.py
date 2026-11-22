@@ -46,7 +46,6 @@ class GroundGrid:
         self.positions = [(self.x0 + (i % self.width) * self.step,
                            self.y0 + (i // self.width) * self.step) for i in range(count)]
         levels = [height(x, y) for x, y in self.positions]
-        tops = list(levels)
         self.ground_heights = levels
         blocked = bytearray(count)
         # The extra half cell keeps a grid edge from stepping across a thin wall.
@@ -76,11 +75,6 @@ class GroundGrid:
                     x1, x2 = ax + (lo - ay) * slope, ax + (hi - ay) * slope
                     spans.append((min(x1, x2) - margin, max(x1, x2) + margin))
                 crossings.sort()
-                for left, right in zip(crossings[::2], crossings[1::2]):
-                    first = max(0, math.ceil((left - self.x0) / self.step))
-                    last = min(self.width - 1, math.floor((right - self.x0) / self.step))
-                    for i in range(row * self.width + first, row * self.width + last + 1):
-                        tops[i] = max(tops[i], prism["top"])
                 spans.extend(zip(crossings[::2], crossings[1::2]))
                 for left, right in spans:
                     first = max(0, math.ceil((left - self.x0) / self.step))
@@ -128,22 +122,6 @@ class GroundGrid:
                         cells.append(j)
             self.members.append(cells)
         self.route_key = None
-        # Keep landing cells with flat space on all four sides. The takeoff
-        # cell comes from the same walkability grid used by the ground bot.
-        self.platforms = []
-        for cell in range(self.width, count - self.width):
-            if cell % self.width in (0, self.width - 1):
-                continue
-            height_gain = tops[cell] - levels[cell]
-            if not 10 <= height_gain <= 51 or self.snap[cell] == cell:
-                continue
-            if any(abs(tops[j] - tops[cell]) > 1 for j in
-                   (cell-1, cell+1, cell-self.width, cell+self.width)):
-                continue
-            launch = self.snap[cell]
-            if math.dist(self.positions[launch], self.positions[cell]) <= 24:
-                self.platforms.append((cell, launch, tops[cell], height_gain))
-
 
     def cell(self, point):
         col = min(self.width - 1, max(0, round((point[0] - self.x0) / self.step)))
