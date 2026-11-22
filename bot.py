@@ -166,7 +166,7 @@ class Bot(StarterBot):
             angle = me["id"] * math.tau / 16
         direction = 1 if me["id"] % 2 else -1
         tangent = (-math.sin(angle) * direction, math.cos(angle) * direction)
-        preferred_radius = radius * 0.9
+        preferred_radius = radius * 0.35
         best_value = -math.inf
         best = None
         for cell, depth in hops.items():
