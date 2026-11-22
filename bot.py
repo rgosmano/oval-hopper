@@ -86,7 +86,7 @@ class Bot(StarterBot):
         flat = math.hypot(px - x, py - y)
         aim = [math.atan2(py - y, px - x), math.atan2(pz - muzzle, max(0.1, flat))]
         # Replays: shots beyond ~130 m hit only 8-20%; save the magazine for closer targets.
-        in_gun_range = flat <= min(110, (gun or {}).get("stats", {}).get("range", 230))
+        in_gun_range = flat <= min(130, (gun or {}).get("stats", {}).get("range", 230))
         fire_gun = bool(gun) and in_gun_range
         fire_bonus = False
         if bonus and bonus["kind"] == "mortar":
@@ -313,7 +313,7 @@ class Bot(StarterBot):
         moving = move != [0.0, 0.0]
         if me["grounded"] and moving and self.mode in ("roam", "circle"):
             energy = me["energy"] / max(1, me.get("max_energy", 100))
-            self.sprinting = energy > (0.36 if self.sprinting else 0.82)
+            self.sprinting = energy > (0.25 if self.sprinting else 0.70)
             boost = boost or self.sprinting
         action.update(move=move, boost=boost, jump=jump)
 
