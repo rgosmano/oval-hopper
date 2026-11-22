@@ -176,7 +176,7 @@ func DefaultParams() Params {
 }
 
 func NewBrain(h *Hello, w *World) *Brain {
-	seed := int64(h.Seed)*7919 + 3
+	seed := int64(h.Seed)
 	if seed == 0 {
 		seed = int64(h.Slot) + 1
 	}
@@ -905,7 +905,8 @@ func (b *Brain) step(o *Obs, act *Action) {
 				}
 				mode = "home"
 			}
-		} else if b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger {
+		} else if (b.P.Explore && !late && me.Cubes < b.cubeCap() && hpFrac > 0.7 && !danger) ||
+			(b.pracOn && laser == nil && !late && hpFrac > 0.6 && !danger) { // practice: scout for a laser instead of idling
 			mx, my = b.exploreMove(o)
 			mode = "explore"
 		}
