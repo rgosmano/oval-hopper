@@ -7,6 +7,7 @@ Entry for Builders Mech Royale (`mechfight/1`).
 The current runtime (`main.go`, `brain.go`, `types.go`, `world.go`, `export.go`, `go.mod`) is **giddygiddyboy's public Mech Royale bot**. We use it under its MIT license, and the full license text is kept in [`LICENSE-giddygiddyboy`](LICENSE-giddygiddyboy).
 
 - Upstream: https://github.com/justnau/giddygiddyboy-mech-royale (no longer public). We took the copy vendored under `drivers/giddy/` in https://github.com/charliescull/mech-royale-bot (MIT, copyright (c) 2026 giddygiddyboy).
+- That copy contains charliescull's small hooks in `brain.go`: environment overrides `GIDDY_ENDGHOST`, `GIDDY_FFA` and `GIDDY_PRAC`, which are unset in our image. It also contains the practice late-hide rule `EndGhost`, taken from https://github.com/SandeepMadhavarapu/BattleRoyale (MIT, commit `b532564`).
 - Our changes to it:
   - the bot's ready name;
   - a flat file layout, which the `Dockerfile` reassembles into the Go module;
